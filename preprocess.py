@@ -91,12 +91,12 @@ def preprocess_dataset(path=DATASET_DIR, output_dir=None):
     tabular_parts.append(numeric_scaled)
 
     # Categorical fields
-    categorical_df = Y[TABULAR_CATEGORICAL_COLS].copy().applymap(_normalize_category)
+    categorical_df = Y[TABULAR_CATEGORICAL_COLS].copy().map(_normalize_category)
     categorical_encoded = pd.get_dummies(categorical_df, columns=TABULAR_CATEGORICAL_COLS, prefix_sep='__')
     tabular_parts.append(categorical_encoded)
 
     # Binary quality / metadata flags
-    binary_df = Y[TABULAR_BINARY_COLS].copy().applymap(_normalize_binary)
+    binary_df = Y[TABULAR_BINARY_COLS].copy().map(_normalize_binary)
     tabular_parts.append(binary_df)
 
     # Combine all tabular features
