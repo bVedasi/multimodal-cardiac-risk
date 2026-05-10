@@ -255,7 +255,9 @@ class MultimodalPTBXLNet(nn.Module):
 
         ecg_layers = self.ecg_encoder.forward_debug(ecg)
         tab_emb = self.tab_encoder(tab)
-        metadata_emb = self.metadata_projector(tab_emb
+        metadata_emb = self.metadata_projector(tab_emb)
+
+        ecg_tokens = ecg_layers["embedding"].unsqueeze(1)
         meta_tokens = metadata_emb.unsqueeze(1)
         ecg_ctx, meta_ctx = self.cross_attention(ecg_tokens, meta_tokens)
         ecg_ctx = ecg_ctx.squeeze(1)
