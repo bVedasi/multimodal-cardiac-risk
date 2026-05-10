@@ -400,7 +400,7 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
                 is_best=True,
             )
 
-    test_loss, test_metrics = run_epoch(
+    test_loss, test_metrics, test_extra = run_epoch(
         model,
         dataloaders["test"],
         criterion,
