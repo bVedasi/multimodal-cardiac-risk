@@ -219,7 +219,7 @@ def run_epoch(
     epoch: int,
     total_epochs: int,
     stage: str,
-) -> Tuple[float, Dict[str, float]]:
+) -> Tuple[float, Dict[str, float], Dict[str, float]]:
     is_train = optimizer is not None
     model.train(is_train)
 
@@ -227,6 +227,8 @@ def run_epoch(
     y_true_batches = []
     y_score_batches = []
     total_batches = len(loader)
+    
+    grad_norms = []
 
     for batch_idx, batch in enumerate(loader, start=1):
         ecg = batch["ecg"].to(device)
@@ -241,6 +243,17 @@ def run_epoch(
 
         if is_train:
             loss.backward()
+            
+            # --- Gradient Tracking ---
+            grad_norm = 0.0
+            for p in model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.detach().data.norm(2)
+                    grad_norm += param_norm.item() ** 2
+            grad_norm = grad_norm ** 0.5
+            grad_norms.append(grad_norm)
+            # -------------------------
+            
             optimizer.step()
 
         total_loss += float(loss.detach().cpu()) * len(labels)
@@ -261,7 +274,16 @@ def run_epoch(
     y_score = np.concatenate(y_score_batches, axis=0)
     metrics = compute_metrics(y_true, y_score)
     avg_loss = total_loss / len(loader.dataset)
-    return avg_loss, metrics
+    
+    extra_stats = {}
+    if is_train and grad_norms:
+        extra_stats["grad_norm_mean"] = float(np.mean(grad_norms))
+        extra_stats["grad_norm_var"] = float(np.var(grad_norms))
+    
+    if str(device) != "cpu" and torch.cuda.is_available():
+        extra_stats["gpu_memory_mb"] = float(torch.cuda.max_memory_allocated(device) / (1024 ** 2))
+
+    return avg_loss, metrics, extra_stats
 
 
 def train_single(config: TrainConfig) -> Dict[str, float]:
@@ -296,12 +318,16 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
         "val_precision_micro": [],
         "train_recall_micro": [],
         "val_recall_micro": [],
+        "train_grad_norm_mean": [],
+        "train_grad_norm_var": [],
+        "epoch_time_seconds": [],
+        "gpu_memory_mb": [],
     }
 
     for epoch in range(1, config.epochs + 1):
         epoch_start = time.perf_counter()
         print(f"Starting epoch {epoch}/{config.epochs}")
-        train_loss, train_metrics = run_epoch(
+        train_loss, train_metrics, train_extra = run_epoch(
             model,
             dataloaders["train"],
             criterion,
@@ -311,7 +337,7 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
             config.epochs,
             "train",
         )
-        val_loss, val_metrics = run_epoch(
+        val_loss, val_metrics, val_extra = run_epoch(
             model,
             dataloaders["val"],
             criterion,
@@ -327,6 +353,7 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
             f"Epoch {epoch}/{config.epochs} | "
             f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} | "
             f"train_f1={train_metrics['f1_micro']:.4f} val_f1={val_metrics['f1_micro']:.4f} | "
+            f"grad_norm={train_extra.get('grad_norm_mean', 0.0):.4f} | "
             f"time={epoch_secs:.1f}s"
         )
 
@@ -341,6 +368,11 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
         history["val_precision_micro"].append(float(val_metrics["precision_micro"]))
         history["train_recall_micro"].append(float(train_metrics["recall_micro"]))
         history["val_recall_micro"].append(float(val_metrics["recall_micro"]))
+        
+        history["train_grad_norm_mean"].append(train_extra.get("grad_norm_mean", 0.0))
+        history["train_grad_norm_var"].append(train_extra.get("grad_norm_var", 0.0))
+        history["epoch_time_seconds"].append(epoch_secs)
+        history["gpu_memory_mb"].append(train_extra.get("gpu_memory_mb", 0.0))
         
         # Save every epoch
         save_checkpoint(
