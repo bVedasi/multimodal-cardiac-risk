@@ -47,10 +47,6 @@ def build_optimizer(model: torch.nn.Module, name: str, lr: float, weight_decay: 
         return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     if name == "adamw":
         return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    if name == "sgd":
-        return torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
-    if name == "rmsprop":
-        return torch.optim.RMSprop(model.parameters(), lr=lr, weight_decay=weight_decay)
     if name == "adagrad":
         return torch.optim.Adagrad(model.parameters(), lr=lr, weight_decay=weight_decay)
     raise ValueError(f"Unsupported optimizer: {name}")
