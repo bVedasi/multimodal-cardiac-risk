@@ -26,7 +26,6 @@ class ModelConfig:
     ecg_channels: int = 12
     ecg_embedding_dim: int = 128
     tabular_embedding_dim: int = 128
-    scp_embedding_dim: int = 128
     metadata_embedding_dim: int = 128
     fusion_dim: int = 128
     num_heads: int = 4
@@ -124,23 +123,6 @@ class TabularEncoder(nn.Module):
         return self.net(x)
 
 
-class SCPEncoder(nn.Module):
-    def __init__(self, input_dim: int, embedding_dim: int = 128, dropout: float = 0.2) -> None:
-        super().__init__()
-        hidden_dim = max(64, embedding_dim)
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, embedding_dim),
-            nn.LayerNorm(embedding_dim),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
-
-
 class GatedFusion(nn.Module):
     def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.3) -> None:
         super().__init__()
@@ -174,7 +156,7 @@ class BidirectionalCrossAttention(nn.Module):
 
 
 class MultimodalPTBXLNet(nn.Module):
-    def __init__(self, tabular_dim: int, scp_dim: int, config: ModelConfig | None = None) -> None:
+    def __init__(self, tabular_dim: int, config: ModelConfig | None = None) -> None:
         super().__init__()
         self.config = config or ModelConfig(num_classes=5)
 
@@ -188,14 +170,9 @@ class MultimodalPTBXLNet(nn.Module):
             embedding_dim=self.config.tabular_embedding_dim,
             dropout=0.2,
         )
-        self.scp_encoder = SCPEncoder(
-            input_dim=scp_dim,
-            embedding_dim=self.config.scp_embedding_dim,
-            dropout=0.2,
-        )
 
         self.metadata_projector = nn.Sequential(
-            nn.Linear(self.config.tabular_embedding_dim + self.config.scp_embedding_dim, self.config.metadata_embedding_dim),
+            nn.Linear(self.config.tabular_embedding_dim, self.config.metadata_embedding_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(self.config.dropout),
         )
@@ -221,15 +198,13 @@ class MultimodalPTBXLNet(nn.Module):
         self,
         ecg: torch.Tensor,
         tab: torch.Tensor,
-        scp: torch.Tensor,
         return_embeddings: bool = False,
         return_probabilities: bool = False,
     ) -> torch.Tensor | Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         ecg_emb = self.ecg_encoder(ecg)
         tab_emb = self.tab_encoder(tab)
-        scp_emb = self.scp_encoder(scp)
 
-        metadata_emb = self.metadata_projector(torch.cat([tab_emb, scp_emb], dim=1))
+        metadata_emb = self.metadata_projector(tab_emb)
 
         ecg_tokens = ecg_emb.unsqueeze(1)
         meta_tokens = metadata_emb.unsqueeze(1)
@@ -252,6 +227,7 @@ class MultimodalPTBXLNet(nn.Module):
                     "tab": tab_emb,
                     "scp": scp_emb,
                     "metadata": metadata_emb,
+                    "metadata": metadata_emb,
                     "ecg_ctx": ecg_ctx,
                     "meta_ctx": meta_ctx,
                     "fusion": fused,
@@ -262,7 +238,6 @@ class MultimodalPTBXLNet(nn.Module):
             return logits, {
                 "ecg": ecg_emb,
                 "tab": tab_emb,
-                "scp": scp_emb,
                 "metadata": metadata_emb,
                 "ecg_ctx": ecg_ctx,
                 "meta_ctx": meta_ctx,
@@ -270,20 +245,17 @@ class MultimodalPTBXLNet(nn.Module):
             }
         return logits
 
-    def predict_proba(self, ecg: torch.Tensor, tab: torch.Tensor, scp: torch.Tensor) -> torch.Tensor:
+    def predict_proba(self, ecg: torch.Tensor, tab: torch.Tensor) -> torch.Tensor:
         """Return sigmoid probabilities for multilabel inference."""
 
-        return self.forward(ecg, tab, scp, return_probabilities=True)  # type: ignore[return-value]
+        return self.forward(ecg, tab, return_probabilities=True)  # type: ignore[return-value]
 
-    def forward_debug(self, ecg: torch.Tensor, tab: torch.Tensor, scp: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward_debug(self, ecg: torch.Tensor, tab: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Return named outputs from the main layers for inspection."""
 
         ecg_layers = self.ecg_encoder.forward_debug(ecg)
         tab_emb = self.tab_encoder(tab)
-        scp_emb = self.scp_encoder(scp)
-        metadata_emb = self.metadata_projector(torch.cat([tab_emb, scp_emb], dim=1))
-
-        ecg_tokens = ecg_layers["embedding"].unsqueeze(1)
+        metadata_emb = self.metadata_projector(tab_emb
         meta_tokens = metadata_emb.unsqueeze(1)
         ecg_ctx, meta_ctx = self.cross_attention(ecg_tokens, meta_tokens)
         ecg_ctx = ecg_ctx.squeeze(1)
@@ -322,9 +294,8 @@ def build_model_from_batches(batch: Dict[str, torch.Tensor], num_classes: int) -
     """Helper to infer encoder input sizes from a batch."""
 
     tabular_dim = batch["tab"].shape[-1]
-    scp_dim = batch["scp"].shape[-1]
     config = ModelConfig(num_classes=num_classes)
-    return MultimodalPTBXLNet(tabular_dim=tabular_dim, scp_dim=scp_dim, config=config)
+    return MultimodalPTBXLNet(tabular_dim=tabular_dim, config=config)
 
 
 if __name__ == "__main__":
@@ -341,19 +312,16 @@ if __name__ == "__main__":
         sample = datasets["train"][0]
         model = MultimodalPTBXLNet(
             tabular_dim=sample["tab"].shape[-1],
-            scp_dim=sample["scp"].shape[-1],
             config=ModelConfig(num_classes=sample["label"].shape[-1]),
         )
         ecg = sample["ecg"].unsqueeze(0)
         tab = sample["tab"].unsqueeze(0)
-        scp = sample["scp"].unsqueeze(0)
     else:
         # Fallback only if processed arrays are not present yet.
         ecg = torch.randn(2, 12, 5000)
         tab = torch.randn(2, 25)
-        scp = torch.randn(2, 71)
-        model = MultimodalPTBXLNet(tabular_dim=25, scp_dim=71, config=ModelConfig(num_classes=5))
+        model = MultimodalPTBXLNet(tabular_dim=25, config=ModelConfig(num_classes=5))
 
-    debug = model.forward_debug(ecg, tab, scp)
+    debug = model.forward_debug(ecg, tab)
     for name, tensor in debug.items():
         print(f"{name}: {tuple(tensor.shape)}")

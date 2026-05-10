@@ -70,7 +70,6 @@ def load_checkpoint(checkpoint_dir: Path, optimizer: str, processed_dir: Path) -
 
     model = MultimodalPTBXLNet(
         tabular_dim=sample["tab"].shape[-1],
-        scp_dim=sample["scp"].shape[-1],
         config=config,
     )
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -114,12 +113,11 @@ def compute_gradient_norm(model: MultimodalPTBXLNet, loader: torch.utils.data.Da
     for batch_idx, batch in enumerate(loader, start=1):
         ecg = batch["ecg"].to(device)
         tab = batch["tab"].to(device)
-        scp = batch["scp"].to(device)
         labels = batch["label"].to(device)
 
         model.zero_grad(set_to_none=True)
         with torch.enable_grad():
-            logits = model(ecg, tab, scp)
+            logits = model(ecg, tab)
             loss = criterion(logits, labels)
             loss.backward()
 

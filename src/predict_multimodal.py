@@ -50,12 +50,11 @@ def safe_torch_load(path: Path) -> dict:
         return torch.load(path, map_location="cpu")
 
 
-def infer_input_dimensions(checkpoint: dict) -> tuple[int, int, int]:
+def infer_input_dimensions(checkpoint: dict) -> tuple[int, int]:
     state_dict = checkpoint["model_state_dict"]
     ecg_channels = int(state_dict["ecg_encoder.stem.0.weight"].shape[1])
     tabular_dim = int(state_dict["tab_encoder.net.0.weight"].shape[1])
-    scp_dim = int(state_dict["scp_encoder.net.0.weight"].shape[1])
-    return ecg_channels, tabular_dim, scp_dim
+    return ecg_channels, tabular_dim
 
 
 @dataclass(frozen=True)
@@ -81,12 +80,11 @@ def load_checkpoint(checkpoint_path: Path, processed_dir: Path) -> tuple[Multimo
     else:
         config = model_config
 
-    ecg_channels, tabular_dim, scp_dim = infer_input_dimensions(checkpoint)
+    ecg_channels, tabular_dim = infer_input_dimensions(checkpoint)
     config = ModelConfig(
         ecg_channels=ecg_channels,
         ecg_embedding_dim=config.ecg_embedding_dim,
         tabular_embedding_dim=config.tabular_embedding_dim,
-        scp_embedding_dim=config.scp_embedding_dim,
         metadata_embedding_dim=config.metadata_embedding_dim,
         fusion_dim=config.fusion_dim,
         num_heads=config.num_heads,
@@ -96,7 +94,6 @@ def load_checkpoint(checkpoint_path: Path, processed_dir: Path) -> tuple[Multimo
 
     model = MultimodalPTBXLNet(
         tabular_dim=tabular_dim,
-        scp_dim=scp_dim,
         config=config,
     )
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -170,13 +167,12 @@ def load_user_sample(input_path: Path) -> Dict[str, torch.Tensor]:
 
     if not all(key in payload for key in ("ecg", "tab", "scp")):
         raise ValueError("Input must contain ecg, tab, and scp.")
+)):
+        raise ValueError("Input must contain ecg and tab.")
 
     sample = {
         "ecg": _as_ecg_tensor(payload["ecg"]),
-        "tab": _as_numpy_vector(payload["tab"], name="tab"),
-        "scp": _as_numpy_vector(payload["scp"], name="scp"),
-    }
-
+        "tab": _as_numpy_vector(payload["tab"], name="tab
     if "labels" in payload and payload["labels"] is not None:
         sample["label"] = torch.tensor(_as_numpy_vector(payload["labels"], name="labels"), dtype=torch.float32)
     return sample
@@ -196,8 +192,7 @@ def predict_sample(model: MultimodalPTBXLNet, sample: dict) -> torch.Tensor:
             sample["ecg"].unsqueeze(0),
             sample["tab"].unsqueeze(0),
             sample["scp"].unsqueeze(0),
-        )
-    return probs.squeeze(0)
+        rn probs.squeeze(0)
 
 
 def compare_prediction_to_truth(probs: torch.Tensor, sample: Dict[str, torch.Tensor], threshold: float = 0.5) -> Dict[str, object]:

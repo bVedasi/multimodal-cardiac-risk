@@ -39,13 +39,12 @@ class MultimodalDataConfig:
 class PTBXLMultimodalDataset(Dataset):
     """Torch dataset for the saved PTB-XL multimodal arrays."""
 
-    def __init__(self, ecg: np.ndarray, tab: np.ndarray, scp: np.ndarray, labels: np.ndarray) -> None:
-        if not (len(ecg) == len(tab) == len(scp) == len(labels)):
+    def __init__(self, ecg: np.ndarray, tab: np.ndarray, labels: np.ndarray) -> None:
+        if not (len(ecg) == len(tab) == len(labels)):
             raise ValueError("All arrays must have the same number of samples.")
 
         self.ecg = ecg.astype(np.float32, copy=False)
         self.tab = tab.astype(np.float32, copy=False)
-        self.scp = scp.astype(np.float32, copy=False)
         self.labels = labels.astype(np.float32, copy=False)
 
     def __len__(self) -> int:
@@ -56,20 +55,17 @@ class PTBXLMultimodalDataset(Dataset):
         return {
             "ecg": torch.tensor(ecg_sample.tolist(), dtype=torch.float32),
             "tab": torch.tensor(self.tab[index].tolist(), dtype=torch.float32),
-            "scp": torch.tensor(self.scp[index].tolist(), dtype=torch.float32),
             "label": torch.tensor(self.labels[index].tolist(), dtype=torch.float32),
         }
 
 
-def _load_split_arrays(processed_dir: Path, split: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _load_split_arrays(processed_dir: Path, split: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     ecg = np.load(processed_dir / f"X_ecg_{split}.npy", allow_pickle=True)
     tab = np.load(processed_dir / f"X_tab_{split}.npy", allow_pickle=True)
-    scp = np.load(processed_dir / f"X_scp_{split}.npy", allow_pickle=True)
     labels = np.load(processed_dir / f"y_{split}.npy", allow_pickle=True)
     return (
         np.asarray(ecg, dtype=np.float32),
         np.asarray(tab, dtype=np.float32),
-        np.asarray(scp, dtype=np.float32),
         np.asarray(labels, dtype=np.float32),
     )
 
@@ -146,10 +142,9 @@ def describe_processed_data(processed_dir: Path | str) -> Dict[str, tuple]:
     processed_dir = Path(processed_dir)
     shapes = {}
     for split in ("train", "test"):
-        ecg, tab, scp, labels = _load_split_arrays(processed_dir, split)
+        ecg, tab, labels = _load_split_arrays(processed_dir, split)
         shapes[f"{split}_ecg"] = ecg.shape
         shapes[f"{split}_tab"] = tab.shape
-        shapes[f"{split}_scp"] = scp.shape
         shapes[f"{split}_labels"] = labels.shape
     return shapes
 

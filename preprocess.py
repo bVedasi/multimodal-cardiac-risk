@@ -121,13 +121,6 @@ def preprocess_dataset(path=DATASET_DIR, output_dir=None):
     Y_bin = mlb.fit_transform(Y['diagnostic_superclass'])
     Y_labels = pd.DataFrame(Y_bin, index=Y.index, columns=mlb.classes_)
 
-    # 3b. Encode the raw SCP multi-label codes as an explicit third modality
-    print("Encoding raw SCP codes as a third modality...")
-    scp_mlb = MultiLabelBinarizer()
-    scp_code_lists = Y.scp_codes.apply(lambda d: [k for k in d.keys()])
-    X_scp = scp_mlb.fit_transform(scp_code_lists)
-    X_scp = pd.DataFrame(X_scp, index=Y.index, columns=scp_mlb.classes_)
-
     # 4. Load Raw ECG Signal Data (X_ecg)
     print("Loading 500Hz ECG waveforms... (This may take a moment)")
     X_ecg = load_raw_data(Y, sampling_rate=500, path=path)
@@ -140,29 +133,24 @@ def preprocess_dataset(path=DATASET_DIR, output_dir=None):
     # Train splits
     X_ecg_train = X_ecg[train_mask]
     X_tab_train = X_tab[train_mask].to_numpy(dtype=np.float32)
-    X_scp_train = X_scp[train_mask].to_numpy(dtype=np.float32)
     y_train = Y_labels[train_mask].to_numpy(dtype=np.float32)
 
     # Test splits
     X_ecg_test = X_ecg[test_mask]
     X_tab_test = X_tab[test_mask].to_numpy(dtype=np.float32)
-    X_scp_test = X_scp[test_mask].to_numpy(dtype=np.float32)
     y_test = Y_labels[test_mask].to_numpy(dtype=np.float32)
 
     print("Data shapes:")
     print(f"X_ecg_train: {X_ecg_train.shape}")
     print(f"X_tab_train: {X_tab_train.shape}")
-    print(f"X_scp_train: {X_scp_train.shape}")
     print(f"y_train: {y_train.shape}")
 
     # Save processed arrays for later training steps
     np.save(output_dir / 'X_ecg_train.npy', X_ecg_train)
     np.save(output_dir / 'X_tab_train.npy', X_tab_train)
-    np.save(output_dir / 'X_scp_train.npy', X_scp_train)
     np.save(output_dir / 'y_train.npy', y_train)
     np.save(output_dir / 'X_ecg_test.npy', X_ecg_test)
     np.save(output_dir / 'X_tab_test.npy', X_tab_test)
-    np.save(output_dir / 'X_scp_test.npy', X_scp_test)
     np.save(output_dir / 'y_test.npy', y_test)
 
     with open(output_dir / 'preprocessing_info.json', 'w', encoding='utf-8') as f:
@@ -173,15 +161,12 @@ def preprocess_dataset(path=DATASET_DIR, output_dir=None):
                 'tabular_categorical_cols': TABULAR_CATEGORICAL_COLS,
                 'tabular_binary_cols': TABULAR_BINARY_COLS,
                 'diagnostic_classes': list(mlb.classes_),
-                'scp_modalities': list(scp_mlb.classes_),
                 'output_files': {
                     'X_ecg_train': 'X_ecg_train.npy',
                     'X_tab_train': 'X_tab_train.npy',
-                    'X_scp_train': 'X_scp_train.npy',
                     'y_train': 'y_train.npy',
                     'X_ecg_test': 'X_ecg_test.npy',
                     'X_tab_test': 'X_tab_test.npy',
-                    'X_scp_test': 'X_scp_test.npy',
                     'y_test': 'y_test.npy',
                 },
             },
@@ -190,7 +175,7 @@ def preprocess_dataset(path=DATASET_DIR, output_dir=None):
         )
     print(f"Saved preprocessed data to: {output_dir}")
     
-    return X_ecg_train, X_tab_train, X_scp_train, y_train, X_ecg_test, X_tab_test, X_scp_test, y_test
+    return X_ecg_train, X_tab_train, y_train, X_ecg_test, X_tab_test, y_test
 
 # Usage:
 # X_ecg_train, X_tab_train, X_scp_train, y_train, X_ecg_test, X_tab_test, X_scp_test, y_test = preprocess_dataset(DATASET_DIR)

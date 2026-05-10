@@ -108,7 +108,6 @@ def save_checkpoint(
             "ecg_channels": model.config.ecg_channels,
             "ecg_embedding_dim": model.config.ecg_embedding_dim,
             "tabular_embedding_dim": model.config.tabular_embedding_dim,
-            "scp_embedding_dim": model.config.scp_embedding_dim,
             "metadata_embedding_dim": model.config.metadata_embedding_dim,
             "fusion_dim": model.config.fusion_dim,
             "num_heads": model.config.num_heads,
@@ -232,13 +231,12 @@ def run_epoch(
     for batch_idx, batch in enumerate(loader, start=1):
         ecg = batch["ecg"].to(device)
         tab = batch["tab"].to(device)
-        scp = batch["scp"].to(device)
         labels = batch["label"].to(device)
 
         if is_train:
             optimizer.zero_grad(set_to_none=True)
 
-        logits = model(ecg, tab, scp)
+        logits = model(ecg, tab)
         loss = criterion(logits, labels)
 
         if is_train:

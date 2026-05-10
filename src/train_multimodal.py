@@ -10,8 +10,6 @@ from pathlib import Path
 import sys
 from typing import Dict, Tuple
 
-import time
-
 import numpy as np
 import torch
 from sklearn.metrics import f1_score, roc_auc_score, recall_score, precision_score
@@ -30,7 +28,7 @@ build_model_from_batches = multimodal_model.build_model_from_batches
 @dataclass(frozen=True)
 class TrainConfig:
     processed_dir: Path
-    epochs: int =50 #epoch is here
+    epochs: int = 50
     batch_size: int = 32
     validation_fraction: float = 0.1
     seed: int = 42
@@ -59,7 +57,6 @@ def build_optimizer(model: torch.nn.Module, name: str, lr: float, weight_decay: 
 def compute_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float = 0.5) -> Dict[str, float]:
     y_pred = (y_score >= threshold).astype(np.int32)
     metrics = {
-        "accuracy": float(np.mean(np.all(y_pred == y_true.astype(np.int32), axis=1))),
         "f1_micro": f1_score(y_true, y_pred, average="micro", zero_division=0),
         "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
         "precision_micro": precision_score(y_true, y_pred, average="micro", zero_division=0),
@@ -74,111 +71,47 @@ def compute_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float = 
     return metrics
 
 
-def _optimizer_dir(config: TrainConfig) -> Path:
-    return config.checkpoint_dir / config.optimizer
+def _checkpoint_path(config: TrainConfig) -> Path:
+    return config.checkpoint_dir / f"best_multimodal_ptbxl_{config.optimizer}.pt"
 
 
-def save_checkpoint(
-    model: torch.nn.Module,
-    config: TrainConfig,
-    num_classes: int,
-    epoch: int,
-    is_best: bool = False,
-) -> None:
-
-    optimizer_dir = _optimizer_dir(config)
-    optimizer_dir.mkdir(parents=True, exist_ok=True)
-
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "config": {
-            "processed_dir": str(config.processed_dir),
-            "epochs": config.epochs,
-            "batch_size": config.batch_size,
-            "validation_fraction": config.validation_fraction,
-            "seed": config.seed,
-            "optimizer": config.optimizer,
-            "learning_rate": config.learning_rate,
-            "weight_decay": config.weight_decay,
-            "device": config.device,
-            "checkpoint_dir": str(_optimizer_dir(config)),
+def save_checkpoint(model: torch.nn.Module, config: TrainConfig, num_classes: int) -> None:
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "config": {
+                "processed_dir": str(config.processed_dir),
+                "epochs": config.epochs,
+                "batch_size": config.batch_size,
+                "validation_fraction": config.validation_fraction,
+                "seed": config.seed,
+                "optimizer": config.optimizer,
+                "learning_rate": config.learning_rate,
+                "weight_decay": config.weight_decay,
+                "device": config.device,
+                "checkpoint_dir": str(config.checkpoint_dir),
+            },
+            "model_config": {
+                "ecg_channels": model.config.ecg_channels,
+                "ecg_embedding_dim": model.config.ecg_embedding_dim,
+                "tabular_embedding_dim": model.config.tabular_embedding_dim,
+                "metadata_embedding_dim": model.config.metadata_embedding_dim,
+                "fusion_dim": model.config.fusion_dim,
+                "num_heads": model.config.num_heads,
+                "dropout": model.config.dropout,
+                "num_classes": model.config.num_classes,
+            },
+            "num_classes": num_classes,
         },
-        "model_config": {
-            "ecg_channels": model.config.ecg_channels,
-            "ecg_embedding_dim": model.config.ecg_embedding_dim,
-            "tabular_embedding_dim": model.config.tabular_embedding_dim,
-            "metadata_embedding_dim": model.config.metadata_embedding_dim,
-            "fusion_dim": model.config.fusion_dim,
-            "num_heads": model.config.num_heads,
-            "dropout": model.config.dropout,
-            "num_classes": model.config.num_classes,
-        },
-        "num_classes": num_classes,
-    }
-
-    # Save every epoch
-    epoch_path = optimizer_dir / f"epoch_{epoch}.pt"
-    torch.save(checkpoint, epoch_path)
-
-    # Save best model separately
-    if is_best:
-        best_path = optimizer_dir / "best.pt"
-        torch.save(checkpoint, best_path)
-
-
-
-def save_epoch_table_csv(optimizer_name: str, history: Dict[str, list], checkpoint_dir: Path) -> None:
-    """Save the per-epoch validation metrics table as a CSV file."""
-    import csv
-    csv_path = checkpoint_dir / f"epoch_metrics_{optimizer_name}.csv"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["epoch", "accuracy", "f1_score", "recall", "precision"])
-        for i, epoch in enumerate(history["epoch"]):
-            writer.writerow([
-                epoch,
-                round(history["val_accuracy"][i], 6),
-                round(history["val_f1_micro"][i], 6),
-                round(history["val_recall_micro"][i], 6),
-                round(history["val_precision_micro"][i], 6),
-            ])
-    print(f"Epoch metrics saved -> {csv_path}")
-
-
-def print_epoch_table(optimizer_name: str, history: Dict[str, list]) -> None:
-    """Print a per-epoch validation metrics table for an optimizer."""
-    col_w = [7, 10, 10, 10, 11]
-    headers = ["Epoch", "Accuracy", "F1-Score", "Recall", "Precision"]
-    sep = "+" + "+".join("-" * w for w in col_w) + "+"
-    header_row = "|" + "|".join(h.center(w) for h, w in zip(headers, col_w)) + "|"
-
-    print(f"\n=== {optimizer_name.upper()} — Per-Epoch Validation Metrics ===")
-    print(sep)
-    print(header_row)
-    print(sep)
-    for i, epoch in enumerate(history["epoch"]):
-        acc  = history["val_accuracy"][i]
-        f1   = history["val_f1_micro"][i]
-        rec  = history["val_recall_micro"][i]
-        prec = history["val_precision_micro"][i]
-        row = (
-            f"|{str(epoch).center(col_w[0])}"
-            f"|{f'{acc:.4f}'.center(col_w[1])}"
-            f"|{f'{f1:.4f}'.center(col_w[2])}"
-            f"|{f'{rec:.4f}'.center(col_w[3])}"
-            f"|{f'{prec:.4f}'.center(col_w[4])}|"
-        )
-        print(row)
-    print(sep)
+        _checkpoint_path(config),
+    )
 
 
 def save_training_curves(history: Dict[str, list], config: TrainConfig) -> None:
     """Save training history to JSON and plot loss/F1 curves when matplotlib is available."""
 
-    _optimizer_dir(config).mkdir(parents=True, exist_ok=True)
-    history_path = _optimizer_dir(config) / f"training_history_{config.optimizer}.json"
+    config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    history_path = config.checkpoint_dir / f"training_history_{config.optimizer}.json"
     with open(history_path, "w", encoding="utf-8") as fh:
         json.dump(history, fh, indent=2)
 
@@ -207,7 +140,7 @@ def save_training_curves(history: Dict[str, list], config: TrainConfig) -> None:
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    fig.savefig(_optimizer_dir(config) / f"training_curves_{config.optimizer}.png", dpi=150)
+    fig.savefig(config.checkpoint_dir / f"training_curves_{config.optimizer}.png", dpi=150)
     plt.close(fig)
 
 def run_epoch(
@@ -281,15 +214,13 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
 
-    _optimizer_dir(config).mkdir(parents=True, exist_ok=True)
+    config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
     best_metrics: Dict[str, float] = {}
     history: Dict[str, list] = {
         "epoch": [],
         "train_loss": [],
         "val_loss": [],
-        "train_accuracy": [],
-        "val_accuracy": [],
         "train_f1_micro": [],
         "val_f1_micro": [],
         "train_precision_micro": [],
@@ -299,7 +230,6 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
     }
 
     for epoch in range(1, config.epochs + 1):
-        epoch_start = time.perf_counter()
         print(f"Starting epoch {epoch}/{config.epochs}")
         train_loss, train_metrics = run_epoch(
             model,
@@ -322,34 +252,21 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
             "val",
         )
 
-        epoch_secs = time.perf_counter() - epoch_start
         print(
             f"Epoch {epoch}/{config.epochs} | "
             f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} | "
-            f"train_f1={train_metrics['f1_micro']:.4f} val_f1={val_metrics['f1_micro']:.4f} | "
-            f"time={epoch_secs:.1f}s"
+            f"train_f1={train_metrics['f1_micro']:.4f} val_f1={val_metrics['f1_micro']:.4f}"
         )
 
         history["epoch"].append(epoch)
         history["train_loss"].append(float(train_loss))
         history["val_loss"].append(float(val_loss))
-        history["train_accuracy"].append(float(train_metrics["accuracy"]))
-        history["val_accuracy"].append(float(val_metrics["accuracy"]))
         history["train_f1_micro"].append(float(train_metrics["f1_micro"]))
         history["val_f1_micro"].append(float(val_metrics["f1_micro"]))
         history["train_precision_micro"].append(float(train_metrics["precision_micro"]))
         history["val_precision_micro"].append(float(val_metrics["precision_micro"]))
         history["train_recall_micro"].append(float(train_metrics["recall_micro"]))
         history["val_recall_micro"].append(float(val_metrics["recall_micro"]))
-        
-        # Save every epoch
-        save_checkpoint(
-            model,
-            config,
-            num_classes,
-            epoch,
-            is_best=False,
-        )
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -360,13 +277,7 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
                 **{f"train_{k}": float(v) for k, v in train_metrics.items()},
                 **{f"val_{k}": float(v) for k, v in val_metrics.items()},
             }
-            save_checkpoint(
-                model,
-                config,
-                num_classes,
-                epoch,
-                is_best=True,
-            )
+            save_checkpoint(model, config, num_classes)
 
     test_loss, test_metrics = run_epoch(
         model,
@@ -381,8 +292,6 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
     print(f"Test loss={test_loss:.4f} | test_f1={test_metrics['f1_micro']:.4f}")
 
     save_training_curves(history, config)
-    save_epoch_table_csv(config.optimizer, history, _optimizer_dir(config))
-    print_epoch_table(config.optimizer, history)
 
     results = {
         **best_metrics,
@@ -395,7 +304,7 @@ def train_single(config: TrainConfig) -> Dict[str, float]:
 
 def train(config: TrainConfig) -> Dict[str, float] | Dict[str, Dict[str, float]]:
     if config.optimizer == "all":
-        optimizers = ["adagrad", "adamw"]
+        optimizers = ["adam", "sgd", "rmsprop", "adagrad", "adamw"]
         summary: Dict[str, Dict[str, float]] = {}
         for optimizer_name in optimizers:
             print(f"\n=== Optimizer study: {optimizer_name} ===")
@@ -413,25 +322,22 @@ def train(config: TrainConfig) -> Dict[str, float] | Dict[str, Dict[str, float]]
             )
             summary[optimizer_name] = train_single(study_config)
 
-        _optimizer_dir(config).mkdir(parents=True, exist_ok=True)
+        config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         with open(config.checkpoint_dir / "optimizer_study_results.json", "w", encoding="utf-8") as fh:
             json.dump(summary, fh, indent=2)
 
         import csv
-        csv_path = _optimizer_dir(config) / "results.csv"
+        csv_path = config.checkpoint_dir / "results.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
-                "optimizer", "epoch",
-                "val_accuracy", "val_f1_micro",
-                "val_recall_micro", "val_precision_micro",
-                "train_loss", "val_loss",
-                "train_f1_micro",
-                "train_precision_micro",
-                "train_recall_micro",
+                "optimizer", "epoch", "train_loss", "val_loss", 
+                "train_f1_micro", "val_f1_micro", 
+                "train_precision_micro", "val_precision_micro",
+                "train_recall_micro", "val_recall_micro"
             ])
             for opt_name in optimizers:
-                hist_file = config.checkpoint_dir / opt_name / f"training_history_{opt_name}.json"
+                hist_file = config.checkpoint_dir / f"training_history_{opt_name}.json"
                 if hist_file.exists():
                     with open(hist_file, "r") as hf:
                         hist = json.load(hf)
@@ -439,17 +345,15 @@ def train(config: TrainConfig) -> Dict[str, float] | Dict[str, Dict[str, float]]
                             writer.writerow([
                                 opt_name,
                                 hist["epoch"][i],
-                                hist["val_accuracy"][i],
-                                hist["val_f1_micro"][i],
-                                hist["val_recall_micro"][i],
-                                hist["val_precision_micro"][i],
                                 hist["train_loss"][i],
                                 hist["val_loss"][i],
                                 hist["train_f1_micro"][i],
+                                hist["val_f1_micro"][i],
                                 hist["train_precision_micro"][i],
+                                hist["val_precision_micro"][i],
                                 hist["train_recall_micro"][i],
+                                hist["val_recall_micro"][i]
                             ])
-        print(f"Combined results saved -> {csv_path}")
 
         return summary
 
@@ -459,12 +363,11 @@ def train(config: TrainConfig) -> Dict[str, float] | Dict[str, Dict[str, float]]
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Train the multimodal PTB-XL model.")
     parser.add_argument("--processed-dir", default="processed")
-    #epoch is here
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--optimizer", default="all", choices=["adamw", "adagrad", "all"])
+    parser.add_argument("--optimizer", default="all", choices=["adam", "adamw", "sgd", "rmsprop", "adagrad", "all"])
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--checkpoint-dir", default="checkpoints")
