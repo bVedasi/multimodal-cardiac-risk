@@ -149,9 +149,11 @@ class BidirectionalCrossAttention(nn.Module):
         self.ecg_to_meta = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         self.meta_to_ecg = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
 
-    def forward(self, ecg_tokens: torch.Tensor, meta_tokens: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        ecg_ctx, _ = self.ecg_to_meta(query=ecg_tokens, key=meta_tokens, value=meta_tokens)
-        meta_ctx, _ = self.meta_to_ecg(query=meta_tokens, key=ecg_tokens, value=ecg_tokens)
+    def forward(self, ecg_tokens: torch.Tensor, meta_tokens: torch.Tensor, need_weights: bool = False) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        ecg_ctx, ecg_attn_weights = self.ecg_to_meta(query=ecg_tokens, key=meta_tokens, value=meta_tokens, need_weights=need_weights)
+        meta_ctx, meta_attn_weights = self.meta_to_ecg(query=meta_tokens, key=ecg_tokens, value=ecg_tokens, need_weights=need_weights)
+        if need_weights:
+            return ecg_ctx, meta_ctx, ecg_attn_weights, meta_attn_weights
         return ecg_ctx, meta_ctx
 
 
@@ -244,6 +246,36 @@ class MultimodalPTBXLNet(nn.Module):
                 "fusion": fused,
             }
         return logits
+
+    def forward_with_attention(self, ecg: torch.Tensor, tab: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """Return logits and attention weights for visualization."""
+        ecg_emb = self.ecg_encoder(ecg)
+        tab_emb = self.tab_encoder(tab)
+
+        metadata_emb = self.metadata_projector(tab_emb)
+
+        ecg_tokens = ecg_emb.unsqueeze(1)
+        meta_tokens = metadata_emb.unsqueeze(1)
+        
+        # Pass need_weights=True to get our attention weights
+        ecg_ctx, meta_ctx, ecg_attn, meta_attn = self.cross_attention(
+            ecg_tokens, meta_tokens, need_weights=True
+        )
+
+        ecg_ctx = ecg_ctx.squeeze(1)
+        meta_ctx = meta_ctx.squeeze(1)
+
+        fused = torch.cat([ecg_ctx, meta_ctx], dim=1)
+        fused = self.fusion(fused)
+        fused = fused + ecg_emb + metadata_emb
+        fused = self.projection(fused)
+        logits = self.head(fused)
+
+        attn_weights = {
+            "ecg_to_meta": ecg_attn,
+            "meta_to_ecg": meta_attn
+        }
+        return logits, attn_weights
 
     def predict_proba(self, ecg: torch.Tensor, tab: torch.Tensor) -> torch.Tensor:
         """Return sigmoid probabilities for multilabel inference."""
