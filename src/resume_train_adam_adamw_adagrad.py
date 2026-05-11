@@ -41,7 +41,7 @@ build_model_from_batches = multimodal_model.build_model_from_batches
 class ResumeConfig:
     processed_dir: Path
     start_epoch: int = 51          # first epoch to run in this continuation
-    total_epochs: int = 100        # final epoch number (inclusive)
+    total_epochs: int = 52        # final epoch number (inclusive)
     batch_size: int = 32
     validation_fraction: float = 0.1
     seed: int = 42
@@ -539,7 +539,7 @@ def parse_args() -> ResumeConfig:
     parser.add_argument("--processed-dir", default="processed")
     parser.add_argument("--start-epoch", type=int, default=51,
                         help="First epoch to run in this continuation (default: 51)")
-    parser.add_argument("--total-epochs", type=int, default=100,
+    parser.add_argument("--total-epochs", type=int, default=52,
                         help="Final epoch number inclusive (default: 100)")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
