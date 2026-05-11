@@ -30,7 +30,7 @@ build_model_from_batches = multimodal_model.build_model_from_batches
 @dataclass(frozen=True)
 class TrainConfig:
     processed_dir: Path
-    epochs: int = 5 #epoch is here
+    epochs: int = 50 #epoch is here
     batch_size: int = 32
     validation_fraction: float = 0.1
     seed: int = 42
@@ -488,7 +488,7 @@ def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Train the multimodal PTB-XL model.")
     parser.add_argument("--processed-dir", default="processed")
     #epoch is here
-    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
