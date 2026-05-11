@@ -453,12 +453,12 @@ def resume_single(config: ResumeConfig) -> Dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Entry point – supports optimizer="all" to run adamw + adagrad sequentially
+# Entry point – supports optimizer="all" to run adamw + adagrad + adam sequentially
 # ---------------------------------------------------------------------------
-
 def resume(config: ResumeConfig) -> Dict[str, float] | Dict[str, Dict[str, float]]:
     if config.optimizer == "all":
-        optimizers = ["adamw", "adagrad"]
+        optimizers = ["adamw", "adagrad", "adam"]
+        print(optimizers)
         summary: Dict[str, Dict[str, float]] = {}
         for opt_name in optimizers:
             study_config = ResumeConfig(
@@ -545,7 +545,7 @@ def parse_args() -> ResumeConfig:
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--optimizer", default="all",
-                        choices=["adamw", "adagrad", "all"])
+                        choices=["adamw", "adagrad", "adam", "all"])
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--checkpoint-dir", default="checkpoints")
