@@ -545,7 +545,7 @@ def parse_args() -> ResumeConfig:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--checkpoint-dir", default="checkpoints")
-    parser.add_argument("--resume-checkpoint", default="best",
+    parser.add_argument("--resume-checkpoint", default="epoch_50",
                         help="Checkpoint stem to resume from, e.g. 'best' or 'epoch_50' "
                              "(default: best)")
     args = parser.parse_args()
